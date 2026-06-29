@@ -113,10 +113,14 @@ function render() {
   const body = document.getElementById("fileBody"); body.innerHTML = "";
   allFiles.filter(f => f.name.toLowerCase().includes(q)).forEach(f => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td><input type=checkbox value="${f.name}"></td><td>${f.name}</td>`
-      + `<td>${f.size ?? ""}</td><td>${f.last_modified ?? ""}</td>`
-      + `<td><button class=act>削除</button></td>`;
-    tr.querySelector("button").onclick = () => del(f.name);
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.value = f.name;
+    const tdCb = document.createElement("td"); tdCb.appendChild(cb);
+    const tdName = document.createElement("td"); tdName.textContent = f.name;
+    const tdSize = document.createElement("td"); tdSize.textContent = f.size ?? "";
+    const tdMod = document.createElement("td"); tdMod.textContent = f.last_modified ?? "";
+    const btn = document.createElement("button"); btn.className = "act"; btn.textContent = "削除"; btn.onclick = () => del(f.name);
+    const tdAct = document.createElement("td"); tdAct.appendChild(btn);
+    tr.append(tdCb, tdName, tdSize, tdMod, tdAct);
     body.appendChild(tr);
   });
 }
