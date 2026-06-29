@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>社内ポータル</title>
+<style>
+  :root { --bg:#f4f6f8; --accent:#0b5cab; --border:#d6dbe1; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI", "Hiragino Sans", Meiryo, sans-serif; background:var(--bg); color:#1f2933; }
+  header { background:var(--accent); color:#fff; padding:12px 20px; }
+  header h1 { font-size:18px; margin:0; }
+  nav { display:flex; gap:4px; background:#fff; border-bottom:1px solid var(--border); padding:0 12px; }
+  nav button { border:none; background:none; padding:14px 18px; font-size:14px; cursor:pointer; border-bottom:3px solid transparent; }
+  nav button.active { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+  main { padding:20px; max-width:1100px; margin:0 auto; }
+  .tab { display:none; }
+  .tab.active { display:block; }
+  table { width:100%; border-collapse:collapse; background:#fff; }
+  th, td { padding:8px 12px; border-bottom:1px solid var(--border); text-align:left; font-size:14px; }
+  th { background:#eef2f6; }
+  .toolbar { display:flex; gap:8px; margin-bottom:12px; align-items:center; }
+  input[type=search] { padding:6px 10px; border:1px solid var(--border); border-radius:4px; }
+  .dropzone { border:2px dashed var(--accent); border-radius:6px; padding:24px; text-align:center; color:#54616e; background:#fff; margin-bottom:12px; }
+  .notice { background:#fff7e6; border:1px solid #f0c36d; padding:10px 12px; border-radius:4px; margin-bottom:12px; }
+  .sidebar { display:flex; gap:16px; }
+  .folders { width:200px; }
+  .folders button { display:block; width:100%; text-align:left; padding:8px; border:1px solid var(--border); background:#fff; margin-bottom:4px; cursor:pointer; border-radius:4px; }
+  .folders button.active { background:var(--accent); color:#fff; }
+  .files { flex:1; }
+  button.act { padding:4px 8px; font-size:12px; cursor:pointer; }
+</style>
+</head>
+<body>
+<header><h1>社内ポータル</h1><span id="user"></span></header>
+<nav>
+  <button data-tab="home" class="active">ホーム</button>
+  <button data-tab="announce">お知らせ</button>
+  <button data-tab="admin" id="adminTabBtn" style="display:none">管理</button>
+</nav>
+<main>
+  <section id="home" class="tab active">
+    <h2>ホーム</h2>
+    <p>動画・マニュアルを閲覧できます。コンテンツは閲覧時にSAS URLを取得してBlobから直接表示します。</p>
+  </section>
+
+  <section id="announce" class="tab">
+    <h2>お知らせ</h2>
+    <p>最新のお知らせを表示します。</p>
+  </section>
+
+  <section id="admin" class="tab">
+    <h2>管理</h2>
+    <div class="sidebar">
+      <div class="folders" id="folders"></div>
+      <div class="files">
+        <div class="notice" id="announceNotice" style="display:none">このフォルダ（お知らせ）を更新するとメール通知が送信されます。</div>
+        <div class="toolbar">
+          <input type="search" id="search" placeholder="検索" />
+          <button class="act" id="selDelete">選択削除</button>
+        </div>
+        <div class="dropzone" id="dropzone">ファイルをここにドラッグ＆ドロップしてアップロード</div>
+        <table>
+          <thead><tr><th></th><th>名前</th><th>サイズ</th><th>更新日時</th><th>操作</th></tr></thead>
+          <tbody id="fileBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+const BASE = "/app01";
+const FOLDERS = ["manuals/", "videos/", "release-notes/", "announcements/"];
+let currentPrefix = "manuals/";
+let allFiles = [];
+
+function api(path, opts) { return fetch(BASE + "/api" + path, opts); }
+
+document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.remove("active"));
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  document.getElementById(b.dataset.tab).classList.add("active");
+  if (b.dataset.tab === "admin") loadFiles();
+}));
+
+async function init() {
+  try {
+    const r = await api("/me");
+    const me = await r.json();
+    document.getElementById("user").textContent = me.name ? "  " + me.name : "";
+    if (me.is_admin) document.getElementById("adminTabBtn").style.display = "";
+  } catch (e) {}
+  const fc = document.getElementById("folders");
+  FOLDERS.forEach(f => {
+    const btn = document.createElement("button");
+    btn.textContent = f; if (f === currentPrefix) btn.classList.add("active");
+    btn.onclick = () => { currentPrefix = f; document.querySelectorAll(".folders button").forEach(x=>x.classList.remove("active")); btn.classList.add("active"); loadFiles(); };
+    fc.appendChild(btn);
+  });
+}
+
+async function loadFiles() {
+  document.getElementById("announceNotice").style.display = currentPrefix === "announcements/" ? "block" : "none";
+  const r = await api("/admin/files?prefix=" + encodeURIComponent(currentPrefix));
+  if (!r.ok) return;
+  allFiles = (await r.json()).files || [];
+  render();
+}
+
+function render() {
+  const q = document.getElementById("search").value.toLowerCase();
+  const body = document.getElementById("fileBody"); body.innerHTML = "";
+  allFiles.filter(f => f.name.toLowerCase().includes(q)).forEach(f => {
+    const tr = document.createElement("tr");
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.value = f.name;
+    const tdCb = document.createElement("td"); tdCb.appendChild(cb);
+    const tdName = document.createElement("td"); tdName.textContent = f.name;
+    const tdSize = document.createElement("td"); tdSize.textContent = f.size ?? "";
+    const tdMod = document.createElement("td"); tdMod.textContent = f.last_modified ?? "";
+    const btn = document.createElement("button"); btn.className = "act"; btn.textContent = "削除"; btn.onclick = () => del(f.name);
+    const tdAct = document.createElement("td"); tdAct.appendChild(btn);
+    tr.append(tdCb, tdName, tdSize, tdMod, tdAct);
+    body.appendChild(tr);
+  });
+}
+document.getElementById("search").oninput = render;
+
+async function del(name) {
+  if (!confirm("削除しますか: " + name)) return;
+  await api("/admin/delete", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name}) });
+  loadFiles();
+}
+document.getElementById("selDelete").onclick = async () => {
+  const names = [...document.querySelectorAll("#fileBody input:checked")].map(c=>c.value);
+  if (!names.length || !confirm(names.length + "件削除しますか")) return;
+  for (const n of names) await api("/admin/delete", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name:n}) });
+  loadFiles();
+};
+
+const dz = document.getElementById("dropzone");
+dz.ondragover = e => { e.preventDefault(); };
+dz.ondrop = async e => {
+  e.preventDefault();
+  for (const file of e.dataTransfer.files) {
+    const name = currentPrefix + file.name;
+    const r = await api("/admin/upload-url", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name}) });
+    if (!r.ok) continue;
+    const { url } = await r.json();
+    await fetch(url, { method:"PUT", headers:{"x-ms-blob-type":"BlockBlob","Content-Type":file.type||"application/octet-stream"}, body:file });
+  }
+  loadFiles();
+};
+
+init();
+</script>
+</body>
+</html>

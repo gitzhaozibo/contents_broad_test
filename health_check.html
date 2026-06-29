@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>稼働状態</title>
+<style>
+  body { font-family:"Segoe UI", Meiryo, sans-serif; background:#f4f6f8; padding:40px; }
+  .card { max-width:480px; margin:auto; background:#fff; border-radius:8px; padding:24px; }
+  .row { display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid #eee; }
+  .dot { width:14px; height:14px; border-radius:50%; display:inline-block; }
+  .ok { background:#2e7d32; } .ng { background:#c62828; } .unk { background:#9e9e9e; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h2>稼働状態</h2>
+  <div class="row"><span>API</span><span class="dot unk" id="api"></span></div>
+  <div class="row"><span>Blob</span><span class="dot unk" id="blob"></span></div>
+  <p id="ts"></p>
+</div>
+<script>
+async function check() {
+  let api = "ng", blob = "ng";
+  try {
+    const r = await fetch("/app01/api/health");
+    if (r.status === 502) { api = "ng"; blob = "unk"; }
+    else { const d = await r.json(); api = r.ok ? "ok" : "ng"; blob = d.blob === "ok" ? "ok" : "ng"; }
+  } catch (e) { api = "ng"; blob = "unk"; }
+  document.getElementById("api").className = "dot " + (api === "ok" ? "ok" : "ng");
+  document.getElementById("blob").className = "dot " + (blob === "ok" ? "ok" : blob === "ng" ? "ng" : "unk");
+  document.getElementById("ts").textContent = "更新: " + new Date().toLocaleString();
+}
+check(); setInterval(check, 10000);
+</script>
+</body>
+</html>
