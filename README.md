@@ -32,3 +32,24 @@ nginx listen 80 / EXPOSE 80 / WEBSITES_PORT=80 を一致。uvicorn は 127.0.0.1
 ストレージはマネージドID＋RBAC（読取/共同作成者）でアクセスし、キーは保持しない。
 
 ローカル開発では Easy Auth が無く `X-MS-CLIENT-PRINCIPAL` が付かないため管理者判定は常に偽。
+
+## テスト
+`pytest` と `Playwright` による単体・結合・E2E テストを `tests/` に用意している。
+
+| 種別 | 場所 | 内容 |
+|---|---|---|
+| 単体 (unit) | `tests/unit/` | 認証ヘッダ解析・管理者判定など純粋ロジック |
+| 結合 (integration) | `tests/integration/` | FastAPI TestClient で各APIを検証（Blobはモック） |
+| E2E | `tests/e2e/` | Playwright でポータルUI（タブ/一覧/検索/削除/稼働状態）を検証 |
+
+### 環境切り替え
+`TEST_ENV` 環境変数でテスト環境（`local`/`ci`/`staging`）を切り替える。
+定義は `tests/environments.py`。未指定時は `local`。
+
+```bash
+pip install -r requirements-dev.txt
+python -m playwright install chromium      # E2E用
+python -m pytest                            # 既定(local)で全テスト
+TEST_ENV=ci python -m pytest -m integration # 環境を切り替えて結合のみ
+python -m pytest -m unit                    # 種別で絞り込み
+```
