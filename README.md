@@ -5,7 +5,8 @@ Azure Blob Storage に保存し、Entra ID（Easy Auth）認証のもとで配�
 
 ## 構成
 単一コンテナ内で **nginx + FastAPI(uvicorn)** を **supervisor** が管理する。
-コードのみをイメージに含め、コンテンツは Blob Storage に分離する。
+コンテンツは Blob Storage と nginx の `/var/www/html/content` に同じ相対パスで
+保存する。画面からの再アップロード（更新）と削除は両方の保存先に反映される。
 
 | ファイル | 役割 |
 |---|---|
@@ -24,14 +25,26 @@ nginx listen 80 / EXPOSE 80 / WEBSITES_PORT=80 を一致。uvicorn は 127.0.0.1
 - `GET /api/health` 認証済 — API + Blob 接続性（正常200／異常503）
 - `GET /api/me` 認証済 — ユーザー名と `is_admin`
 - `GET /api/admin/files` 管理者 — ファイル一覧
-- `POST /api/admin/upload-url` 管理者 — 書き込み SAS 発行
-- `POST /api/admin/delete` 管理者 — 削除
+- `POST /api/admin/upload?name=...` 管理者 — リクエストボディを nginx と Blob に保存・更新
+- `POST /api/admin/delete` 管理者 — nginx と Blob から削除
 
 ## App Service 設定
-`WEBSITES_PORT=80`, `STORAGE_ACCOUNT_NAME`, `BLOB_CONTAINER_NAME`。
+`WEBSITES_PORT=80`, `STORAGE_ACCOUNT_NAME`, `BLOB_CONTAINER_NAME`,
+`STORAGE_MODE=azure`。ローカル保存先は `CONTENT_ROOT` で変更できる
+（既定 `/var/www/html/content`）。
 ストレージはマネージドID＋RBAC（読取/共同作成者）でアクセスし、キーは保持しない。
 
+nginx は 2 GB までのリクエストを許可し、アップロードをバッファリングせず API に
+ストリーミングする。再起動後も nginx 側のコピーを維持する必要がある環境では、
+`/var/www/html/content` に永続ボリュームをマウントする。
+
 ローカル開発では Easy Auth が無く `X-MS-CLIENT-PRINCIPAL` が付かないため管理者判定は常に偽。
+
+### Blob を作成しないテスト・検証
+
+`STORAGE_MODE=dummy` を設定すると Azure SDK を呼ばず、nginx 側のローカル保存だけで
+一覧・アップロード・削除を検証できる。`local` と `ci` のテスト環境ではこのモードを
+既定で使用する。
 
 ## テスト
 `pytest` と `Playwright` による単体・結合・E2E テストを `tests/` に用意している。

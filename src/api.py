@@ -4,8 +4,8 @@ Implements the API surface described in the specification:
   * /api/health        - liveness + Blob connectivity
   * /api/me            - current user name + is_admin flag
   * /api/admin/files   - list blobs (FileAdmin only)
-  * /api/admin/upload-url - issue write SAS for direct browser PUT (FileAdmin only)
-  * /api/admin/delete  - delete a blob server-side (FileAdmin only)
+  * /api/admin/upload  - mirror an upload to nginx and Blob (FileAdmin only)
+  * /api/admin/delete  - delete from nginx and Blob (FileAdmin only)
 
 Authentication is handled by App Service Easy Auth, which forwards the
 X-MS-CLIENT-PRINCIPAL header (base64 JSON). Admin authorisation is decided by
@@ -21,30 +21,28 @@ import binascii
 import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 try:  # Azure SDKs are optional for local import-only checks
     from azure.identity import DefaultAzureCredential
-    from azure.storage.blob import (
-        BlobSasPermissions,
-        BlobServiceClient,
-        generate_blob_sas,
-    )
+    from azure.storage.blob import BlobServiceClient
     _AZURE_AVAILABLE = True
 except ImportError:  # pragma: no cover - allows py_compile without SDK
     DefaultAzureCredential = None
     BlobServiceClient = None
-    generate_blob_sas = None
-    BlobSasPermissions = None
     _AZURE_AVAILABLE = False
 
 ADMIN_ROLE = "FileAdmin"
 STORAGE_ACCOUNT_NAME = os.environ.get("STORAGE_ACCOUNT_NAME", "")
 BLOB_CONTAINER_NAME = os.environ.get("BLOB_CONTAINER_NAME", "content")
+DEFAULT_CONTENT_ROOT = "/var/www/html/content"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("portal-api")
@@ -69,6 +67,57 @@ def get_blob_service_client():
             account_url=account_url, credential=DefaultAzureCredential()
         )
     return _blob_service_client
+
+
+def is_dummy_storage() -> bool:
+    """Return whether Azure calls should be replaced by local dummy handling."""
+    return os.environ.get("STORAGE_MODE", "azure").lower() == "dummy"
+
+
+def content_root() -> Path:
+    return Path(os.environ.get("CONTENT_ROOT", DEFAULT_CONTENT_ROOT))
+
+
+def validate_blob_name(name: str) -> tuple[str, ...]:
+    """Validate a Blob-style relative path before using it on local disk."""
+    if (
+        not name
+        or name.startswith("/")
+        or name.endswith("/")
+        or "\\" in name
+        or "\x00" in name
+    ):
+        raise HTTPException(status_code=400, detail="Invalid file name")
+    parts = name.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise HTTPException(status_code=400, detail="Invalid file name")
+    return PurePosixPath(name).parts
+
+
+def local_file_path(name: str) -> Path:
+    return content_root().joinpath(*validate_blob_name(name))
+
+
+def list_local_files(prefix: str) -> list[dict]:
+    root = content_root()
+    if not root.exists():
+        return []
+    files = []
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        name = path.relative_to(root).as_posix()
+        if not name.startswith(prefix):
+            continue
+        stat = path.stat()
+        files.append({
+            "name": name,
+            "size": stat.st_size,
+            "last_modified": datetime.fromtimestamp(
+                stat.st_mtime, tz=timezone.utc
+            ).isoformat(),
+        })
+    return sorted(files, key=lambda item: item["name"])
 
 
 # --------------------------------------------------------------------------
@@ -112,10 +161,6 @@ def require_admin(request: Request):
 # --------------------------------------------------------------------------
 # Request models
 # --------------------------------------------------------------------------
-class UploadUrlRequest(BaseModel):
-    name: str
-
-
 class DeleteRequest(BaseModel):
     name: str
 
@@ -126,6 +171,8 @@ class DeleteRequest(BaseModel):
 @app.get("/api/health")
 def health():
     """Liveness + Blob connectivity. 200 when healthy, 503 on Blob failure."""
+    if is_dummy_storage():
+        return {"status": "ok", "blob": "dummy"}
     client = get_blob_service_client()
     if client is None:
         return JSONResponse(
@@ -154,6 +201,8 @@ def me(request: Request):
 
 @app.get("/api/admin/files")
 def list_files(request: Request, prefix: str = "", _: bool = Depends(require_admin)):
+    if is_dummy_storage():
+        return {"files": list_local_files(prefix)}
     client = get_blob_service_client()
     if client is None:
         raise HTTPException(status_code=503, detail="Storage not configured")
@@ -168,38 +217,52 @@ def list_files(request: Request, prefix: str = "", _: bool = Depends(require_adm
     return {"files": files}
 
 
-@app.post("/api/admin/upload-url")
-def upload_url(req: UploadUrlRequest, request: Request, _: bool = Depends(require_admin)):
-    """Issue a short-lived write SAS so the browser can PUT directly to Blob."""
-    client = get_blob_service_client()
-    if client is None:
-        raise HTTPException(status_code=503, detail="Storage not configured")
-    start = datetime.now(timezone.utc) - timedelta(minutes=5)
-    expiry = start + timedelta(minutes=35)
-    delegation_key = client.get_user_delegation_key(start, expiry)
-    sas = generate_blob_sas(
-        account_name=STORAGE_ACCOUNT_NAME,
-        container_name=BLOB_CONTAINER_NAME,
-        blob_name=req.name,
-        user_delegation_key=delegation_key,
-        permission=BlobSasPermissions(create=True, write=True),
-        start=start,
-        expiry=expiry,
-    )
-    url = (
-        f"https://{STORAGE_ACCOUNT_NAME}.blob.core.windows.net/"
-        f"{BLOB_CONTAINER_NAME}/{req.name}?{sas}"
-    )
-    return {"url": url, "expires": expiry.isoformat()}
+@app.post("/api/admin/upload")
+async def upload_file(
+    name: str, request: Request, _: bool = Depends(require_admin)
+):
+    """Stream a file to local disk, then mirror it to Blob when configured."""
+    target = local_file_path(name)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=target.parent, prefix=".upload-", delete=False
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            async for chunk in request.stream():
+                temporary.write(chunk)
+
+        size = temporary_path.stat().st_size
+        if not is_dummy_storage():
+            client = get_blob_service_client()
+            if client is None:
+                raise HTTPException(status_code=503, detail="Storage not configured")
+            blob = client.get_container_client(
+                BLOB_CONTAINER_NAME
+            ).get_blob_client(name)
+            with temporary_path.open("rb") as data:
+                await run_in_threadpool(
+                    blob.upload_blob, data, overwrite=True, length=size
+                )
+
+        temporary_path.replace(target)
+        return {"uploaded": name, "size": size}
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 @app.post("/api/admin/delete")
 def delete_file(req: DeleteRequest, request: Request, _: bool = Depends(require_admin)):
-    client = get_blob_service_client()
-    if client is None:
-        raise HTTPException(status_code=503, detail="Storage not configured")
-    container = client.get_container_client(BLOB_CONTAINER_NAME)
-    container.delete_blob(req.name)
+    target = local_file_path(req.name)
+    if not is_dummy_storage():
+        client = get_blob_service_client()
+        if client is None:
+            raise HTTPException(status_code=503, detail="Storage not configured")
+        container = client.get_container_client(BLOB_CONTAINER_NAME)
+        container.delete_blob(req.name, delete_snapshots="include")
+    target.unlink(missing_ok=True)
     return {"deleted": req.name}
 
 
