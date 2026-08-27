@@ -22,18 +22,21 @@ ENVIRONMENTS = {
         "name": "local",
         "storage_account_name": "localdevaccount",
         "blob_container_name": "content",
+        "storage_mode": "dummy",
         "base_url": "http://127.0.0.1:8000",
     },
     "ci": {
         "name": "ci",
         "storage_account_name": "ciaccount",
         "blob_container_name": "content",
+        "storage_mode": "dummy",
         "base_url": "http://127.0.0.1:8000",
     },
     "staging": {
         "name": "staging",
         "storage_account_name": "stagingaccount",
         "blob_container_name": "content",
+        "storage_mode": "azure",
         "base_url": "https://staging.example.com",
     },
 }

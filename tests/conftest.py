@@ -28,6 +28,7 @@ def test_env():
     env = get_environment()
     os.environ["STORAGE_ACCOUNT_NAME"] = env["storage_account_name"]
     os.environ["BLOB_CONTAINER_NAME"] = env["blob_container_name"]
+    os.environ["STORAGE_MODE"] = env["storage_mode"]
     return env
 
 
@@ -57,11 +58,13 @@ def mock_blob_client():
 
 
 @pytest.fixture
-def client(test_env, mock_blob_client, monkeypatch):
+def client(test_env, mock_blob_client, monkeypatch, tmp_path):
     """FastAPI TestClient with the Blob service swapped for a mock."""
     from fastapi.testclient import TestClient
 
     from src import api
 
+    monkeypatch.setenv("STORAGE_MODE", "azure")
+    monkeypatch.setenv("CONTENT_ROOT", str(tmp_path))
     monkeypatch.setattr(api, "get_blob_service_client", lambda: mock_blob_client)
     return TestClient(api.app)

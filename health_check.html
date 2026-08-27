@@ -25,7 +25,7 @@ async function check() {
   try {
     const r = await fetch("/app01/api/health");
     if (r.status === 502) { api = "ng"; blob = "unk"; }
-    else { const d = await r.json(); api = r.ok ? "ok" : "ng"; blob = d.blob === "ok" ? "ok" : "ng"; }
+    else { const d = await r.json(); api = r.ok ? "ok" : "ng"; blob = ["ok", "dummy"].includes(d.blob) ? "ok" : "ng"; }
   } catch (e) { api = "ng"; blob = "unk"; }
   document.getElementById("api").className = "dot " + (api === "ok" ? "ok" : "ng");
   document.getElementById("blob").className = "dot " + (blob === "ok" ? "ok" : blob === "ng" ? "ng" : "unk");

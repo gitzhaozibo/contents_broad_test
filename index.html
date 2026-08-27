@@ -144,10 +144,12 @@ dz.ondrop = async e => {
   e.preventDefault();
   for (const file of e.dataTransfer.files) {
     const name = currentPrefix + file.name;
-    const r = await api("/admin/upload-url", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name}) });
-    if (!r.ok) continue;
-    const { url } = await r.json();
-    await fetch(url, { method:"PUT", headers:{"x-ms-blob-type":"BlockBlob","Content-Type":file.type||"application/octet-stream"}, body:file });
+    const r = await api("/admin/upload?name=" + encodeURIComponent(name), {
+      method:"POST",
+      headers:{"Content-Type":file.type||"application/octet-stream"},
+      body:file
+    });
+    if (!r.ok) alert("アップロードに失敗しました: " + name);
   }
   loadFiles();
 };

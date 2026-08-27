@@ -14,12 +14,17 @@ WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Application code (code only; content lives in Blob Storage)
+# Application code and the local content mirror
 COPY src/ /app/src/
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY index.html /var/www/html/index.html
 COPY health_check.html /var/www/html/health_check.html
+RUN mkdir -p /var/www/html/content/manuals \
+        /var/www/html/content/videos \
+        /var/www/html/content/release-notes \
+        /var/www/html/content/announcements \
+    && chown -R www-data:www-data /var/www/html/content
 
 # Build-time validation: fail the build on missing files, bad imports or
 # invalid nginx config.

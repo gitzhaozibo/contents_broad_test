@@ -59,4 +59,66 @@ def test_delete_admin(client, mock_blob_client, admin_headers):
     r = client.post("/api/admin/delete", json={"name": "manuals/a.pdf"}, headers=admin_headers)
     assert r.status_code == 200
     assert r.json() == {"deleted": "manuals/a.pdf"}
-    mock_blob_client.get_container_client.return_value.delete_blob.assert_called_once_with("manuals/a.pdf")
+    mock_blob_client.get_container_client.return_value.delete_blob.assert_called_once_with(
+        "manuals/a.pdf", delete_snapshots="include"
+    )
+
+
+def test_upload_mirrors_file(client, mock_blob_client, admin_headers, tmp_path):
+    r = client.post(
+        "/api/admin/upload?name=manuals/a.pdf",
+        content=b"pdf-data",
+        headers={**admin_headers, "Content-Type": "application/pdf"},
+    )
+    assert r.status_code == 200
+    assert r.json() == {"uploaded": "manuals/a.pdf", "size": 8}
+    assert (tmp_path / "manuals" / "a.pdf").read_bytes() == b"pdf-data"
+    upload = (
+        mock_blob_client.get_container_client.return_value
+        .get_blob_client.return_value.upload_blob
+    )
+    assert upload.call_args.kwargs == {"overwrite": True, "length": 8}
+
+
+def test_upload_rejects_path_traversal(client, admin_headers):
+    r = client.post(
+        "/api/admin/upload?name=../secret.txt",
+        content=b"secret",
+        headers=admin_headers,
+    )
+    assert r.status_code == 400
+
+
+def test_dummy_mode_uses_only_local_storage(
+    client, mock_blob_client, admin_headers, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("STORAGE_MODE", "dummy")
+
+    upload = client.post(
+        "/api/admin/upload?name=videos/demo.mp4",
+        content=b"video",
+        headers=admin_headers,
+    )
+    assert upload.status_code == 200
+    assert mock_blob_client.mock_calls == []
+
+    listed = client.get(
+        "/api/admin/files?prefix=videos/", headers=admin_headers
+    ).json()["files"]
+    assert listed[0]["name"] == "videos/demo.mp4"
+    assert listed[0]["size"] == 5
+
+    deleted = client.post(
+        "/api/admin/delete",
+        json={"name": "videos/demo.mp4"},
+        headers=admin_headers,
+    )
+    assert deleted.status_code == 200
+    assert not (tmp_path / "videos" / "demo.mp4").exists()
+
+
+def test_health_dummy_mode(client, monkeypatch):
+    monkeypatch.setenv("STORAGE_MODE", "dummy")
+    r = client.get("/api/health")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok", "blob": "dummy"}
