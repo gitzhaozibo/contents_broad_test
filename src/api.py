@@ -100,16 +100,10 @@ def local_file_path(name: str) -> Path:
 
 def list_local_files(prefix: str) -> list[dict]:
     root = content_root()
-    search_root = root
-    if "/" in prefix:
-        first_segment = prefix.split("/", 1)[0]
-        if first_segment in ("", ".", "..") or "\\" in first_segment:
-            raise HTTPException(status_code=400, detail="Invalid prefix")
-        search_root = root / first_segment
-    if not search_root.exists():
+    if not root.exists():
         return []
     files = []
-    for path in search_root.rglob("*"):
+    for path in root.rglob("*"):
         if not path.is_file():
             continue
         name = path.relative_to(root).as_posix()
