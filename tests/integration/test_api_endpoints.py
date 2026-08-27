@@ -55,10 +55,14 @@ def test_delete_requires_admin(client):
     assert client.post("/api/admin/delete", json={"name": "x"}).status_code == 403
 
 
-def test_delete_admin(client, mock_blob_client, admin_headers):
+def test_delete_admin(client, mock_blob_client, admin_headers, tmp_path):
+    local_file = tmp_path / "manuals" / "a.pdf"
+    local_file.parent.mkdir()
+    local_file.write_bytes(b"pdf")
     r = client.post("/api/admin/delete", json={"name": "manuals/a.pdf"}, headers=admin_headers)
     assert r.status_code == 200
     assert r.json() == {"deleted": "manuals/a.pdf"}
+    assert not local_file.exists()
     mock_blob_client.get_container_client.return_value.delete_blob.assert_called_once_with(
         "manuals/a.pdf", delete_snapshots="include"
     )
@@ -87,6 +91,27 @@ def test_upload_rejects_path_traversal(client, admin_headers):
         headers=admin_headers,
     )
     assert r.status_code == 400
+
+
+def test_failed_blob_upload_preserves_existing_local_file(
+    client, mock_blob_client, admin_headers, tmp_path
+):
+    local_file = tmp_path / "manuals" / "a.pdf"
+    local_file.parent.mkdir()
+    local_file.write_bytes(b"old")
+    (
+        mock_blob_client.get_container_client.return_value
+        .get_blob_client.return_value.upload_blob
+    ).side_effect = RuntimeError("upload failed")
+
+    with pytest.raises(RuntimeError, match="upload failed"):
+        client.post(
+            "/api/admin/upload?name=manuals/a.pdf",
+            content=b"new",
+            headers=admin_headers,
+        )
+
+    assert local_file.read_bytes() == b"old"
 
 
 def test_dummy_mode_uses_only_local_storage(

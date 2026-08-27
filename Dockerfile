@@ -20,10 +20,7 @@ COPY nginx.conf /etc/nginx/nginx.conf
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY index.html /var/www/html/index.html
 COPY health_check.html /var/www/html/health_check.html
-RUN mkdir -p /var/www/html/content/manuals \
-        /var/www/html/content/videos \
-        /var/www/html/content/release-notes \
-        /var/www/html/content/announcements \
+RUN mkdir -p /var/www/html/content \
     && chown -R www-data:www-data /var/www/html/content
 
 # Build-time validation: fail the build on missing files, bad imports or
