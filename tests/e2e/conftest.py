@@ -22,6 +22,20 @@ FILES = [
     {"name": "manuals/guide.pdf", "size": 1024, "last_modified": "2024-01-01T00:00:00+00:00"},
     {"name": "manuals/setup.pdf", "size": 2048, "last_modified": "2024-02-01T00:00:00+00:00"},
 ]
+RELEASE_NOTES = [
+    {
+        "name": "release_notes/2026-08-20.txt",
+        "size": 20,
+        "last_modified": "2026-08-20T00:00:00+00:00",
+        "content": "最新のお知らせ",
+    },
+    {
+        "name": "release_notes/2026-08-01.txt",
+        "size": 20,
+        "last_modified": "2026-08-01T00:00:00+00:00",
+        "content": "以前のお知らせ",
+    },
+]
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -46,6 +60,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._json({"name": "tester@example.com", "is_admin": True})
         elif self.path.startswith("/app01/api/health"):
             self._json({"status": "ok", "blob": "ok"})
+        elif self.path.startswith("/app01/api/release-notes"):
+            self._json({"release_notes": RELEASE_NOTES})
         elif self.path.startswith("/app01/api/admin/files"):
             self._json({"files": FILES})
         elif self.path.startswith("/app01/health_check"):
