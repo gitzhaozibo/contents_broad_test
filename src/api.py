@@ -3,6 +3,7 @@
 Implements the API surface described in the specification:
   * /api/health        - liveness + Blob connectivity
   * /api/me            - current user name + is_admin flag
+  * /api/release-notes - public release note text, newest first
   * /api/admin/files   - list blobs (FileAdmin only)
   * /api/admin/upload  - mirror an upload to nginx and Blob (FileAdmin only)
   * /api/admin/delete  - delete from nginx and Blob (FileAdmin only)
@@ -238,7 +239,10 @@ def release_notes():
                 ),
                 "content": content,
             })
-    notes.sort(key=lambda item: item["last_modified"] or "", reverse=True)
+    notes.sort(
+        key=lambda item: (item["last_modified"] or "", item["name"]),
+        reverse=True,
+    )
     return {"release_notes": notes}
 
 
