@@ -40,6 +40,7 @@ except ImportError:  # pragma: no cover - allows py_compile without SDK
     _AZURE_AVAILABLE = False
 
 ADMIN_ROLE = "FileAdmin"
+RELEASE_NOTES_PREFIX = "release_notes/"
 STORAGE_ACCOUNT_NAME = os.environ.get("STORAGE_ACCOUNT_NAME", "")
 BLOB_CONTAINER_NAME = os.environ.get("BLOB_CONTAINER_NAME", "content")
 DEFAULT_CONTENT_ROOT = "/var/www/html/content"
@@ -197,6 +198,48 @@ def me(request: Request):
         "name": principal["name"],
         "is_admin": ADMIN_ROLE in principal["roles"],
     }
+
+
+@app.get("/api/release-notes")
+def release_notes():
+    """Return release note text files in descending modification order."""
+    if is_dummy_storage():
+        files = list_local_files(RELEASE_NOTES_PREFIX)
+        notes = [
+            {
+                **item,
+                "content": local_file_path(item["name"]).read_text(
+                    encoding="utf-8", errors="replace"
+                ),
+            }
+            for item in files
+            if item["name"].lower().endswith(".txt")
+        ]
+    else:
+        client = get_blob_service_client()
+        if client is None:
+            raise HTTPException(status_code=503, detail="Storage not configured")
+        container = client.get_container_client(BLOB_CONTAINER_NAME)
+        notes = []
+        for blob in container.list_blobs(name_starts_with=RELEASE_NOTES_PREFIX):
+            if not blob.name.lower().endswith(".txt"):
+                continue
+            content = (
+                container.get_blob_client(blob.name)
+                .download_blob()
+                .readall()
+                .decode("utf-8", errors="replace")
+            )
+            notes.append({
+                "name": blob.name,
+                "size": blob.size,
+                "last_modified": (
+                    blob.last_modified.isoformat() if blob.last_modified else None
+                ),
+                "content": content,
+            })
+    notes.sort(key=lambda item: item["last_modified"] or "", reverse=True)
+    return {"release_notes": notes}
 
 
 @app.get("/api/admin/files")

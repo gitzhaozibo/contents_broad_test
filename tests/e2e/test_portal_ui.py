@@ -20,6 +20,18 @@ def test_tab_navigation(page, base_url):
     assert not page.locator("#home").is_visible()
 
 
+def test_release_notes_render_newest_first(page, base_url):
+    page.goto(f"{base_url}/app01/")
+    page.click("nav button[data-tab='announce']")
+    page.wait_for_selector(".release-note")
+
+    notes = page.locator(".release-note")
+    assert notes.count() == 2
+    assert "2026-08-20" in notes.nth(0).inner_text()
+    assert "最新のお知らせ" in notes.nth(0).inner_text()
+    assert "2026-08-01" in notes.nth(1).inner_text()
+
+
 def test_admin_files_render_and_search(page, base_url):
     page.goto(f"{base_url}/app01/")
     page.click("#adminTabBtn")

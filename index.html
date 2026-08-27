@@ -29,6 +29,10 @@
   .folders button.active { background:var(--accent); color:#fff; }
   .files { flex:1; }
   button.act { padding:4px 8px; font-size:12px; cursor:pointer; }
+  .release-note { background:#fff; border:1px solid var(--border); border-radius:6px; padding:16px; margin-bottom:12px; }
+  .release-note h3 { margin:0 0 4px; font-size:16px; }
+  .release-note time { color:#54616e; font-size:12px; }
+  .release-note pre { margin:12px 0 0; white-space:pre-wrap; font:inherit; line-height:1.6; }
 </style>
 </head>
 <body>
@@ -46,7 +50,7 @@
 
   <section id="announce" class="tab">
     <h2>お知らせ</h2>
-    <p>最新のお知らせを表示します。</p>
+    <div id="releaseNotes" aria-live="polite">読み込み中...</div>
   </section>
 
   <section id="admin" class="tab">
@@ -70,7 +74,7 @@
 </main>
 <script>
 const BASE = "/app01";
-const FOLDERS = ["manuals/", "videos/", "release-notes/", "announcements/"];
+const FOLDERS = ["manuals/", "videos/", "release_notes/", "announcements/"];
 let currentPrefix = "manuals/";
 let allFiles = [];
 
@@ -82,6 +86,7 @@ document.querySelectorAll("nav button").forEach(b => b.addEventListener("click",
   b.classList.add("active");
   document.getElementById(b.dataset.tab).classList.add("active");
   if (b.dataset.tab === "admin") loadFiles();
+  if (b.dataset.tab === "announce") loadReleaseNotes();
 }));
 
 async function init() {
@@ -106,6 +111,36 @@ async function loadFiles() {
   if (!r.ok) return;
   allFiles = (await r.json()).files || [];
   render();
+}
+
+async function loadReleaseNotes() {
+  const container = document.getElementById("releaseNotes");
+  container.textContent = "読み込み中...";
+  try {
+    const r = await api("/release-notes");
+    if (!r.ok) throw new Error("request failed");
+    const notes = (await r.json()).release_notes || [];
+    container.innerHTML = "";
+    if (!notes.length) {
+      container.textContent = "現在、お知らせはありません。";
+      return;
+    }
+    notes.forEach(note => {
+      const article = document.createElement("article");
+      article.className = "release-note";
+      const title = document.createElement("h3");
+      title.textContent = note.name.split("/").pop().replace(/\.txt$/i, "");
+      const time = document.createElement("time");
+      time.dateTime = note.last_modified || "";
+      time.textContent = note.last_modified ? new Date(note.last_modified).toLocaleString("ja-JP") : "";
+      const content = document.createElement("pre");
+      content.textContent = note.content;
+      article.append(title, time, content);
+      container.appendChild(article);
+    });
+  } catch (e) {
+    container.textContent = "お知らせを読み込めませんでした。";
+  }
 }
 
 function render() {

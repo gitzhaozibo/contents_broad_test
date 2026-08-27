@@ -1,6 +1,7 @@
 """Integration tests for API endpoints via FastAPI TestClient (Blob mocked)."""
 
 from datetime import datetime, timezone
+import os
 from unittest.mock import MagicMock
 
 import pytest
@@ -37,6 +38,31 @@ def test_health_blob_error(client, mock_blob_client):
 
 def test_admin_files_requires_admin(client):
     assert client.get("/api/admin/files").status_code == 403
+
+
+def test_release_notes_are_public_text_only_and_newest_first(
+    client, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("STORAGE_MODE", "dummy")
+    notes = tmp_path / "release_notes"
+    notes.mkdir()
+    older = notes / "older.txt"
+    older.write_text("古いお知らせ", encoding="utf-8")
+    newer = notes / "newer.txt"
+    newer.write_text("新しいお知らせ", encoding="utf-8")
+    (notes / "ignored.md").write_text("対象外", encoding="utf-8")
+    os.utime(older, (100, 100))
+    os.utime(newer, (200, 200))
+
+    r = client.get("/api/release-notes")
+
+    assert r.status_code == 200
+    release_notes = r.json()["release_notes"]
+    assert [note["name"] for note in release_notes] == [
+        "release_notes/newer.txt",
+        "release_notes/older.txt",
+    ]
+    assert release_notes[0]["content"] == "新しいお知らせ"
 
 
 def test_admin_files_lists_blobs(client, mock_blob_client, admin_headers):
