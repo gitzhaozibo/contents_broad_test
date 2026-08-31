@@ -34,6 +34,7 @@ from starlette.concurrency import run_in_threadpool
 try:  # Azure SDKs are optional for local import-only checks
     from azure.identity import DefaultAzureCredential
     from azure.storage.blob import BlobServiceClient
+
     _AZURE_AVAILABLE = True
 except ImportError:  # pragma: no cover - allows py_compile without SDK
     DefaultAzureCredential = None
@@ -42,9 +43,15 @@ except ImportError:  # pragma: no cover - allows py_compile without SDK
 
 ADMIN_ROLE = "FileAdmin"
 RELEASE_NOTES_PREFIX = "release_notes/"
+# Note category is derived from the file-name prefix: "update_*" -> update,
+# "news_*" -> news, anything else -> release.
+NOTE_CATEGORY_PREFIXES = {"update_": "update", "news_": "news"}
+DEFAULT_NOTE_CATEGORY = "release"
 STORAGE_ACCOUNT_NAME = os.environ.get("STORAGE_ACCOUNT_NAME", "")
 BLOB_CONTAINER_NAME = os.environ.get("BLOB_CONTAINER_NAME", "content")
 DEFAULT_CONTENT_ROOT = "/var/www/html/content"
+# Repo-local content dir used as the dummy-mode default (sibling of src/).
+DUMMY_CONTENT_ROOT = Path(__file__).resolve().parent.parent / "portal-content"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("portal-api")
@@ -65,9 +72,7 @@ def get_blob_service_client():
         return None
     if _blob_service_client is None:
         account_url = f"https://{STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
-        _blob_service_client = BlobServiceClient(
-            account_url=account_url, credential=DefaultAzureCredential()
-        )
+        _blob_service_client = BlobServiceClient(account_url=account_url, credential=DefaultAzureCredential())
     return _blob_service_client
 
 
@@ -77,18 +82,17 @@ def is_dummy_storage() -> bool:
 
 
 def content_root() -> Path:
-    return Path(os.environ.get("CONTENT_ROOT", DEFAULT_CONTENT_ROOT))
+    env = os.environ.get("CONTENT_ROOT")
+    if env:
+        return Path(env)
+    if is_dummy_storage():
+        return DUMMY_CONTENT_ROOT
+    return Path(DEFAULT_CONTENT_ROOT)
 
 
 def validate_blob_name(name: str) -> tuple[str, ...]:
     """Validate a Blob-style relative path before using it on local disk."""
-    if (
-        not name
-        or name.startswith("/")
-        or name.endswith("/")
-        or "\\" in name
-        or "\x00" in name
-    ):
+    if not name or name.startswith("/") or name.endswith("/") or "\\" in name or "\x00" in name:
         raise HTTPException(status_code=400, detail="Invalid file name")
     parts = name.split("/")
     if any(part in ("", ".", "..") for part in parts):
@@ -112,13 +116,13 @@ def list_local_files(prefix: str) -> list[dict]:
         if not name.startswith(prefix):
             continue
         stat = path.stat()
-        files.append({
-            "name": name,
-            "size": stat.st_size,
-            "last_modified": datetime.fromtimestamp(
-                stat.st_mtime, tz=timezone.utc
-            ).isoformat(),
-        })
+        files.append(
+            {
+                "name": name,
+                "size": stat.st_size,
+                "last_modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            }
+        )
     return sorted(files, key=lambda item: item["name"])
 
 
@@ -143,8 +147,7 @@ def parse_client_principal(request: Request) -> dict:
         val = claim.get("val", "")
         if typ in ("roles", "http://schemas.microsoft.com/ws/2008/06/identity/claims/role"):
             roles.append(val)
-        if typ in ("name", "preferred_username",
-                   "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"):
+        if typ in ("name", "preferred_username", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"):
             if name is None:
                 name = val
     return {"name": name, "roles": roles}
@@ -187,9 +190,7 @@ def health():
         return {"status": "ok", "blob": "ok"}
     except Exception as exc:  # noqa: BLE001 - report any connectivity failure
         logger.warning("Blob connectivity check failed: %s", exc)
-        return JSONResponse(
-            status_code=503, content={"status": "degraded", "blob": "error"}
-        )
+        return JSONResponse(status_code=503, content={"status": "degraded", "blob": "error"})
 
 
 @app.get("/api/me")
@@ -201,6 +202,15 @@ def me(request: Request):
     }
 
 
+def note_category(name: str) -> str:
+    """Classify a release note file by its file-name prefix."""
+    filename = name.rsplit("/", 1)[-1].lower()
+    for prefix, category in NOTE_CATEGORY_PREFIXES.items():
+        if filename.startswith(prefix):
+            return category
+    return DEFAULT_NOTE_CATEGORY
+
+
 @app.get("/api/release-notes")
 def release_notes():
     """Return release note text files in descending modification order."""
@@ -209,9 +219,8 @@ def release_notes():
         notes = [
             {
                 **item,
-                "content": local_file_path(item["name"]).read_text(
-                    encoding="utf-8", errors="replace"
-                ),
+                "category": note_category(item["name"]),
+                "content": local_file_path(item["name"]).read_text(encoding="utf-8", errors="replace"),
             }
             for item in files
             if item["name"].lower().endswith(".txt")
@@ -225,20 +234,16 @@ def release_notes():
         for blob in container.list_blobs(name_starts_with=RELEASE_NOTES_PREFIX):
             if not blob.name.lower().endswith(".txt"):
                 continue
-            content = (
-                container.get_blob_client(blob.name)
-                .download_blob()
-                .readall()
-                .decode("utf-8", errors="replace")
+            content = container.get_blob_client(blob.name).download_blob().readall().decode("utf-8", errors="replace")
+            notes.append(
+                {
+                    "name": blob.name,
+                    "size": blob.size,
+                    "last_modified": (blob.last_modified.isoformat() if blob.last_modified else None),
+                    "category": note_category(blob.name),
+                    "content": content,
+                }
             )
-            notes.append({
-                "name": blob.name,
-                "size": blob.size,
-                "last_modified": (
-                    blob.last_modified.isoformat() if blob.last_modified else None
-                ),
-                "content": content,
-            })
     notes.sort(
         key=lambda item: (item["last_modified"] or "", item["name"]),
         reverse=True,
@@ -256,26 +261,24 @@ def list_files(request: Request, prefix: str = "", _: bool = Depends(require_adm
     container = client.get_container_client(BLOB_CONTAINER_NAME)
     files = []
     for blob in container.list_blobs(name_starts_with=prefix):
-        files.append({
-            "name": blob.name,
-            "size": blob.size,
-            "last_modified": blob.last_modified.isoformat() if blob.last_modified else None,
-        })
+        files.append(
+            {
+                "name": blob.name,
+                "size": blob.size,
+                "last_modified": blob.last_modified.isoformat() if blob.last_modified else None,
+            }
+        )
     return {"files": files}
 
 
 @app.post("/api/admin/upload")
-async def upload_file(
-    name: str, request: Request, _: bool = Depends(require_admin)
-):
+async def upload_file(name: str, request: Request, _: bool = Depends(require_admin)):
     """Stream a file to local disk, then mirror it to Blob when configured."""
     target = local_file_path(name)
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = None
     try:
-        with tempfile.NamedTemporaryFile(
-            dir=target.parent, prefix=".upload-", delete=False
-        ) as temporary:
+        with tempfile.NamedTemporaryFile(dir=target.parent, prefix=".upload-", delete=False) as temporary:
             temporary_path = Path(temporary.name)
             async for chunk in request.stream():
                 temporary.write(chunk)
@@ -285,13 +288,9 @@ async def upload_file(
             client = get_blob_service_client()
             if client is None:
                 raise HTTPException(status_code=503, detail="Storage not configured")
-            blob = client.get_container_client(
-                BLOB_CONTAINER_NAME
-            ).get_blob_client(name)
+            blob = client.get_container_client(BLOB_CONTAINER_NAME).get_blob_client(name)
             with temporary_path.open("rb") as data:
-                await run_in_threadpool(
-                    blob.upload_blob, data, overwrite=True, length=size
-                )
+                await run_in_threadpool(blob.upload_blob, data, overwrite=True, length=size)
 
         temporary_path.replace(target)
         return {"uploaded": name, "size": size}

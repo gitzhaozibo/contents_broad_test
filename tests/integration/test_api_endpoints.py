@@ -1,7 +1,7 @@
 """Integration tests for API endpoints via FastAPI TestClient (Blob mocked)."""
 
-from datetime import datetime, timezone
 import os
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -40,9 +40,7 @@ def test_admin_files_requires_admin(client):
     assert client.get("/api/admin/files").status_code == 403
 
 
-def test_release_notes_are_public_text_only_and_newest_first(
-    client, tmp_path, monkeypatch
-):
+def test_release_notes_are_public_text_only_and_newest_first(client, tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_MODE", "dummy")
     notes = tmp_path / "release_notes"
     notes.mkdir()
@@ -65,9 +63,27 @@ def test_release_notes_are_public_text_only_and_newest_first(
     assert release_notes[0]["content"] == "新しいお知らせ"
 
 
+def test_release_notes_are_categorised_by_filename_prefix(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_MODE", "dummy")
+    notes = tmp_path / "release_notes"
+    notes.mkdir()
+    (notes / "v1.0.0.txt").write_text("リリース", encoding="utf-8")
+    (notes / "update_patch.txt").write_text("アップデート", encoding="utf-8")
+    (notes / "news_event.txt").write_text("ニュース", encoding="utf-8")
+
+    r = client.get("/api/release-notes")
+
+    assert r.status_code == 200
+    categories = {note["name"]: note["category"] for note in r.json()["release_notes"]}
+    assert categories == {
+        "release_notes/v1.0.0.txt": "release",
+        "release_notes/update_patch.txt": "update",
+        "release_notes/news_event.txt": "news",
+    }
+
+
 def test_admin_files_lists_blobs(client, mock_blob_client, admin_headers):
-    blob = MagicMock(name="manuals/a.pdf", size=123,
-                     last_modified=datetime(2024, 1, 1, tzinfo=timezone.utc))
+    blob = MagicMock(name="manuals/a.pdf", size=123, last_modified=datetime(2024, 1, 1, tzinfo=timezone.utc))
     blob.name = "manuals/a.pdf"
     mock_blob_client.get_container_client.return_value.list_blobs.return_value = [blob]
     r = client.get("/api/admin/files", headers=admin_headers)
@@ -89,9 +105,7 @@ def test_delete_admin(client, mock_blob_client, admin_headers, tmp_path):
     assert r.status_code == 200
     assert r.json() == {"deleted": "manuals/a.pdf"}
     assert not local_file.exists()
-    mock_blob_client.get_container_client.return_value.delete_blob.assert_called_once_with(
-        "manuals/a.pdf", delete_snapshots="include"
-    )
+    mock_blob_client.get_container_client.return_value.delete_blob.assert_called_once_with("manuals/a.pdf", delete_snapshots="include")
 
 
 def test_upload_mirrors_file(client, mock_blob_client, admin_headers, tmp_path):
@@ -103,10 +117,7 @@ def test_upload_mirrors_file(client, mock_blob_client, admin_headers, tmp_path):
     assert r.status_code == 200
     assert r.json() == {"uploaded": "manuals/a.pdf", "size": 8}
     assert (tmp_path / "manuals" / "a.pdf").read_bytes() == b"pdf-data"
-    upload = (
-        mock_blob_client.get_container_client.return_value
-        .get_blob_client.return_value.upload_blob
-    )
+    upload = mock_blob_client.get_container_client.return_value.get_blob_client.return_value.upload_blob
     assert upload.call_args.kwargs == {"overwrite": True, "length": 8}
 
 
@@ -119,16 +130,11 @@ def test_upload_rejects_path_traversal(client, admin_headers):
     assert r.status_code == 400
 
 
-def test_failed_blob_upload_preserves_existing_local_file(
-    client, mock_blob_client, admin_headers, tmp_path
-):
+def test_failed_blob_upload_preserves_existing_local_file(client, mock_blob_client, admin_headers, tmp_path):
     local_file = tmp_path / "manuals" / "a.pdf"
     local_file.parent.mkdir()
     local_file.write_bytes(b"old")
-    (
-        mock_blob_client.get_container_client.return_value
-        .get_blob_client.return_value.upload_blob
-    ).side_effect = RuntimeError("upload failed")
+    (mock_blob_client.get_container_client.return_value.get_blob_client.return_value.upload_blob).side_effect = RuntimeError("upload failed")
 
     with pytest.raises(RuntimeError, match="upload failed"):
         client.post(
@@ -140,9 +146,7 @@ def test_failed_blob_upload_preserves_existing_local_file(
     assert local_file.read_bytes() == b"old"
 
 
-def test_dummy_mode_uses_only_local_storage(
-    client, mock_blob_client, admin_headers, tmp_path, monkeypatch
-):
+def test_dummy_mode_uses_only_local_storage(client, mock_blob_client, admin_headers, tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_MODE", "dummy")
 
     upload = client.post(
@@ -153,9 +157,7 @@ def test_dummy_mode_uses_only_local_storage(
     assert upload.status_code == 200
     assert mock_blob_client.mock_calls == []
 
-    listed = client.get(
-        "/api/admin/files?prefix=videos/", headers=admin_headers
-    ).json()["files"]
+    listed = client.get("/api/admin/files?prefix=videos/", headers=admin_headers).json()["files"]
     assert listed[0]["name"] == "videos/demo.mp4"
     assert listed[0]["size"] == 5
 
