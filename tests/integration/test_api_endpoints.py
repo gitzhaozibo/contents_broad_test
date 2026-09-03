@@ -1,7 +1,7 @@
 """Integration tests for API endpoints via FastAPI TestClient (Blob mocked)."""
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -83,7 +83,7 @@ def test_release_notes_are_categorised_by_filename_prefix(client, tmp_path, monk
 
 
 def test_admin_files_lists_blobs(client, mock_blob_client, admin_headers):
-    blob = MagicMock(name="manuals/a.pdf", size=123, last_modified=datetime(2024, 1, 1, tzinfo=timezone.utc))
+    blob = MagicMock(name="manuals/a.pdf", size=123, last_modified=datetime(2024, 1, 1, tzinfo=UTC))
     blob.name = "manuals/a.pdf"
     mock_blob_client.get_container_client.return_value.list_blobs.return_value = [blob]
     r = client.get("/api/admin/files", headers=admin_headers)
@@ -105,7 +105,9 @@ def test_delete_admin(client, mock_blob_client, admin_headers, tmp_path):
     assert r.status_code == 200
     assert r.json() == {"deleted": "manuals/a.pdf"}
     assert not local_file.exists()
-    mock_blob_client.get_container_client.return_value.delete_blob.assert_called_once_with("manuals/a.pdf", delete_snapshots="include")
+    mock_blob_client.get_container_client.return_value.delete_blob.assert_called_once_with(
+        "manuals/a.pdf", delete_snapshots="include"
+    )
 
 
 def test_upload_mirrors_file(client, mock_blob_client, admin_headers, tmp_path):
@@ -134,7 +136,9 @@ def test_failed_blob_upload_preserves_existing_local_file(client, mock_blob_clie
     local_file = tmp_path / "manuals" / "a.pdf"
     local_file.parent.mkdir()
     local_file.write_bytes(b"old")
-    (mock_blob_client.get_container_client.return_value.get_blob_client.return_value.upload_blob).side_effect = RuntimeError("upload failed")
+    (
+        mock_blob_client.get_container_client.return_value.get_blob_client.return_value.upload_blob
+    ).side_effect = RuntimeError("upload failed")
 
     with pytest.raises(RuntimeError, match="upload failed"):
         client.post(

@@ -53,7 +53,5 @@ def get_environment() -> dict:
     """Return config for the active environment, falling back to default."""
     name = current_env_name()
     if name not in ENVIRONMENTS:
-        raise ValueError(
-            f"Unknown TEST_ENV={name!r}; choose one of {sorted(ENVIRONMENTS)}"
-        )
+        raise ValueError(f"Unknown TEST_ENV={name!r}; choose one of {sorted(ENVIRONMENTS)}")
     return ENVIRONMENTS[name]

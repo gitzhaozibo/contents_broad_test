@@ -1,5 +1,6 @@
 __pycache__/
 .pytest_cache/
 *.pyc
-/portal-contents/
+portal-contents/
 src/__pycache__/
+portal-content/videos/tears_of_steel_1080p.mov

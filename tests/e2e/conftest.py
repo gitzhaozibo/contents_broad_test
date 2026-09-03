@@ -17,6 +17,8 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 INDEX_HTML = (REPO_ROOT / "index.html").read_text(encoding="utf-8")
 HEALTH_HTML = (REPO_ROOT / "health_check.html").read_text(encoding="utf-8")
+APP_JS = (REPO_ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
+APP_CSS = (REPO_ROOT / "static" / "css" / "style.css").read_text(encoding="utf-8")
 
 FILES = [
     {"name": "manuals/guide.pdf", "size": 1024, "last_modified": "2024-01-01T00:00:00+00:00"},
@@ -55,6 +57,12 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(html.encode())
 
+    def _text(self, body, ctype):
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.end_headers()
+        self.wfile.write(body.encode())
+
     def do_GET(self):
         if self.path.startswith("/app01/api/me"):
             self._json({"name": "tester@example.com", "is_admin": True})
@@ -66,6 +74,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._json({"files": FILES})
         elif self.path.startswith("/app01/health_check"):
             self._html(HEALTH_HTML)
+        elif self.path.startswith("/app01/static/js/app.js"):
+            self._text(APP_JS, "application/javascript; charset=utf-8")
+        elif self.path.startswith("/app01/static/css/style.css"):
+            self._text(APP_CSS, "text/css; charset=utf-8")
         else:
             self._html(INDEX_HTML)
 

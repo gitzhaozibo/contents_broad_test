@@ -1,0 +1,17 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes, I: import順(isort), UP: 古い書き方の近代化,
+# B: バグになりやすいパターン(bugbear), SIM: 冗長な書き方の簡素化
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# テストデータの日本語長文文字列は分割しない
+"scripts/generate_test_data.py" = ["E501"]
+
+[tool.ruff.format]
+# 既存コードのスタイル（ダブルクォート・スペースインデント）に合わせる
+quote-style = "double"
+indent-style = "space"

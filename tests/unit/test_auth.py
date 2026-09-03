@@ -42,8 +42,7 @@ def test_parses_name_and_roles():
 
 
 def test_role_claim_uri_form_is_recognised():
-    claims = [{"typ": "http://schemas.microsoft.com/ws/2008/06/identity/claims/role",
-               "val": "FileAdmin"}]
+    claims = [{"typ": "http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "val": "FileAdmin"}]
     header = base64.b64encode(json.dumps({"claims": claims}).encode()).decode()
     assert api.is_admin(_Req({"X-MS-CLIENT-PRINCIPAL": header})) is True
 

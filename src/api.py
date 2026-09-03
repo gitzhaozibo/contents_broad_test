@@ -23,7 +23,7 @@ import json
 import logging
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -120,7 +120,7 @@ def list_local_files(prefix: str) -> list[dict]:
             {
                 "name": name,
                 "size": stat.st_size,
-                "last_modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                "last_modified": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
             }
         )
     return sorted(files, key=lambda item: item["name"])
@@ -147,9 +147,11 @@ def parse_client_principal(request: Request) -> dict:
         val = claim.get("val", "")
         if typ in ("roles", "http://schemas.microsoft.com/ws/2008/06/identity/claims/role"):
             roles.append(val)
-        if typ in ("name", "preferred_username", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"):
-            if name is None:
-                name = val
+        if (
+            typ in ("name", "preferred_username", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")
+            and name is None
+        ):
+            name = val
     return {"name": name, "roles": roles}
 
 

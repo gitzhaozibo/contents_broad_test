@@ -20,6 +20,10 @@ ROOT = Path(__file__).resolve().parent.parent
 API_BASE = "http://127.0.0.1:8000"
 CONTENT_ROOT = Path(os.environ.get("CONTENT_ROOT") or ROOT / "portal-content")
 PORT = int(os.environ.get("DEV_PORT", "8080"))
+STATIC_TYPES = {
+    ".js": "application/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+}
 
 if os.environ.get("DEV_ADMIN", "1") != "0":
     _claims = [
@@ -58,7 +62,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send(502, b'{"detail":"API server unreachable"}', "application/json")
 
     def _static(self):
-        if self.path.startswith("/app01/content/"):
+        if self.path.startswith("/app01/static/"):
+            rel = self.path[len("/app01/static/") :]
+            target = (ROOT / "static" / rel).resolve()
+            static_root = (ROOT / "static").resolve()
+            if target.is_file() and static_root in target.parents:
+                ctype = STATIC_TYPES.get(target.suffix, "application/octet-stream")
+                self._send(200, target.read_bytes(), ctype)
+            else:
+                self._send(404, b"not found", "text/plain")
+        elif self.path.startswith("/app01/content/"):
             rel = self.path[len("/app01/content/") :]
             target = (CONTENT_ROOT / rel).resolve()
             if target.is_file() and CONTENT_ROOT.resolve() in target.parents:

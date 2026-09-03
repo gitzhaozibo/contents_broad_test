@@ -20,6 +20,7 @@ COPY nginx.conf /etc/nginx/nginx.conf
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY index.html /var/www/html/index.html
 COPY health_check.html /var/www/html/health_check.html
+COPY static/ /var/www/html/static/
 COPY content/ /var/www/html/content/
 RUN chown -R www-data:www-data /var/www/html/content
 
@@ -28,6 +29,8 @@ RUN chown -R www-data:www-data /var/www/html/content
 RUN test -f /app/src/api.py \
     && test -f /var/www/html/index.html \
     && test -f /var/www/html/health_check.html \
+    && test -f /var/www/html/static/js/app.js \
+    && test -f /var/www/html/static/css/style.css \
     && python -c "import fastapi, uvicorn, azure.identity, azure.storage.blob" \
     && python -m py_compile /app/src/api.py \
     && nginx -t
