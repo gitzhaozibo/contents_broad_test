@@ -66,5 +66,11 @@ def client(test_env, mock_blob_client, monkeypatch, tmp_path):
 
     monkeypatch.setenv("STORAGE_MODE", "azure")
     monkeypatch.setenv("CONTENT_ROOT", str(tmp_path))
+    catalog = tmp_path / "content_catalog.yaml"
+    catalog.write_text(
+        "applications:\n  - name: テストアプリ\n    manual: manuals/a.pdf\n    video: videos/demo.mp4\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CONTENT_CATALOG", str(catalog))
     monkeypatch.setattr(api, "get_blob_service_client", lambda: mock_blob_client)
     return TestClient(api.app)

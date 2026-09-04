@@ -1,0 +1,21 @@
+# アプリ名とコンテンツファイルの対応表（テスト用）
+# file は content_root からの相対パスで指定する。
+applications:
+  - name: 社内ポータル
+    manual: manuals/portal_user_guide.pdf
+    video: videos/portal_introduction.mp4
+  - name: 管理者ポータル
+    manual: manuals/admin_operations.pdf
+    video: videos/upload_howto.mp4
+  - name: 富士通業務アプリ
+    manual: manuals/fujitsu_202603.pdf
+    video: null
+  - name: 九州旅客鉄道業務アプリ
+    manual: manuals/jrkyushu_202503.pdf
+    video: null
+  - name: トラブルシューティング
+    manual: manuals/troubleshooting.pdf
+    video: null
+  - name: 未配備アプリ（表示確認用）
+    manual: manuals/not-yet-uploaded.pdf
+    video: null

@@ -26,6 +26,7 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
+import yaml
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -52,6 +53,8 @@ BLOB_CONTAINER_NAME = os.environ.get("BLOB_CONTAINER_NAME", "content")
 DEFAULT_CONTENT_ROOT = "/var/www/html/content"
 # Repo-local content dir used as the dummy-mode default (sibling of src/).
 DUMMY_CONTENT_ROOT = Path(__file__).resolve().parent.parent / "portal-content"
+DEFAULT_CONTENT_CATALOG = Path(__file__).resolve().parent.parent / "config" / "content_catalog.yaml"
+CATALOG_PREFIXES = ("manuals/", "videos/")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("portal-api")
@@ -124,6 +127,82 @@ def list_local_files(prefix: str) -> list[dict]:
             }
         )
     return sorted(files, key=lambda item: item["name"])
+
+
+def content_catalog_path() -> Path:
+    return Path(os.environ.get("CONTENT_CATALOG", DEFAULT_CONTENT_CATALOG))
+
+
+def load_content_catalog() -> list[dict]:
+    try:
+        with content_catalog_path().open(encoding="utf-8") as stream:
+            catalog = yaml.safe_load(stream) or {}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail="Content catalog not found") from exc
+    except yaml.YAMLError as exc:
+        raise HTTPException(status_code=500, detail="Invalid content catalog") from exc
+
+    applications = catalog.get("applications")
+    if not isinstance(applications, list):
+        raise HTTPException(status_code=500, detail="Invalid content catalog")
+    return applications
+
+
+def catalog_file_names(prefix: str | None = None) -> set[str]:
+    names = set()
+    for application in load_content_catalog():
+        if not isinstance(application, dict):
+            raise HTTPException(status_code=500, detail="Invalid content catalog")
+        for field in ("manual", "video"):
+            name = application.get(field)
+            if name is None:
+                continue
+            if not isinstance(name, str) or not name.startswith(CATALOG_PREFIXES):
+                raise HTTPException(status_code=500, detail="Invalid content catalog")
+            validate_blob_name(name)
+            if prefix is None or name.startswith(prefix):
+                names.add(name)
+    return names
+
+
+def catalog_files(prefix: str) -> list[dict]:
+    names_by_application = {}
+    for application in load_content_catalog():
+        if not isinstance(application, dict) or not isinstance(application.get("name"), str):
+            raise HTTPException(status_code=500, detail="Invalid content catalog")
+        for field in ("manual", "video"):
+            name = application.get(field)
+            if name is not None:
+                names_by_application[name] = application["name"]
+
+    names = sorted(name for name in names_by_application if name.startswith(prefix))
+    local_files = {item["name"]: item for item in list_local_files(prefix)}
+    blob_files = {}
+    if not is_dummy_storage():
+        client = get_blob_service_client()
+        if client is None:
+            raise HTTPException(status_code=503, detail="Storage not configured")
+        container = client.get_container_client(BLOB_CONTAINER_NAME)
+        blob_files = {
+            blob.name: {
+                "size": blob.size,
+                "last_modified": blob.last_modified.isoformat() if blob.last_modified else None,
+            }
+            for blob in container.list_blobs(name_starts_with=prefix)
+        }
+
+    files = []
+    for name in names:
+        metadata = (local_files.get(name) if is_dummy_storage() else blob_files.get(name)) or {}
+        files.append(
+            {
+                "application_name": names_by_application[name],
+                "name": name,
+                "size": metadata.get("size"),
+                "last_modified": metadata.get("last_modified"),
+            }
+        )
+    return files
 
 
 # --------------------------------------------------------------------------
@@ -255,6 +334,8 @@ def release_notes():
 
 @app.get("/api/admin/files")
 def list_files(request: Request, prefix: str = "", _: bool = Depends(require_admin)):
+    if prefix in CATALOG_PREFIXES:
+        return {"files": catalog_files(prefix)}
     if is_dummy_storage():
         return {"files": list_local_files(prefix)}
     client = get_blob_service_client()
@@ -276,6 +357,8 @@ def list_files(request: Request, prefix: str = "", _: bool = Depends(require_adm
 @app.post("/api/admin/upload")
 async def upload_file(name: str, request: Request, _: bool = Depends(require_admin)):
     """Stream a file to local disk, then mirror it to Blob when configured."""
+    if name.startswith(CATALOG_PREFIXES) and name not in catalog_file_names():
+        raise HTTPException(status_code=400, detail="File is not registered in the content catalog")
     target = local_file_path(name)
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = None

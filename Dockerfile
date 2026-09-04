@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Application code and the local content mirror
 COPY src/ /app/src/
+COPY config/ /app/config/
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY index.html /var/www/html/index.html
@@ -31,6 +32,7 @@ RUN test -f /app/src/api.py \
     && test -f /var/www/html/health_check.html \
     && test -f /var/www/html/static/js/app.js \
     && test -f /var/www/html/static/css/style.css \
+    && test -f /app/config/content_catalog.yaml \
     && python -c "import fastapi, uvicorn, azure.identity, azure.storage.blob" \
     && python -m py_compile /app/src/api.py \
     && nginx -t

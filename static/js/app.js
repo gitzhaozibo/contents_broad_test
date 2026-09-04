@@ -5,6 +5,7 @@
 // ---------------------------------------------------------------------------
 const BASE = "/app01";
 const FOLDERS = ["manuals/", "videos/", "release_notes/", "announcements/"];
+const CATALOG_PREFIXES = ["manuals/", "videos/"];
 const PAGE_SIZE = 50;
 const DELETE_UNDO_MS = 5000;
 const NOTE_CATEGORIES = {
@@ -44,6 +45,7 @@ const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("fileInput");
 const filePickBtn = document.getElementById("filePick");
 const selDeleteBtn = document.getElementById("selDelete");
+let uploadTargetName = null;
 
 // ---------------------------------------------------------------------------
 // 汎用ヘルパー
@@ -236,6 +238,9 @@ async function loadReleaseNotes() {
 async function loadFiles() {
   announceNotice.style.display =
     currentPrefix === "announcements/" ? "block" : "none";
+  const catalogMode = CATALOG_PREFIXES.includes(currentPrefix);
+  filePickBtn.style.display = catalogMode ? "none" : "";
+  dropzone.style.display = catalogMode ? "none" : "";
   try {
     const r = await api(
       `/admin/files?prefix=${encodeURIComponent(currentPrefix)}`,
@@ -283,6 +288,8 @@ function render() {
     const tdCb = document.createElement("td");
     tdCb.appendChild(cb);
     const tdName = document.createElement("td");
+    const tdApp = document.createElement("td");
+    tdApp.textContent = f.application_name || "";
     const link = document.createElement("a");
     link.href = contentUrl(f.name);
     link.target = "_blank";
@@ -299,8 +306,15 @@ function render() {
     btn.textContent = "削除";
     btn.addEventListener("click", () => scheduleDelete([f.name]));
     const tdAct = document.createElement("td");
+    if (CATALOG_PREFIXES.includes(currentPrefix)) {
+      const uploadBtn = document.createElement("button");
+      uploadBtn.className = "act";
+      uploadBtn.textContent = "アップロード";
+      uploadBtn.addEventListener("click", () => selectUploadTarget(f.name));
+      tdAct.appendChild(uploadBtn);
+    }
     tdAct.appendChild(btn);
-    tr.append(tdCb, tdName, tdSize, tdMod, tdAct);
+    tr.append(tdCb, tdApp, tdName, tdSize, tdMod, tdAct);
     fileBody.appendChild(tr);
   });
 
@@ -437,7 +451,25 @@ function uploadOne(name, file) {
   xhr.send(file);
 }
 
-function uploadFiles(fileList) {
+function selectUploadTarget(name) {
+  uploadTargetName = name;
+  fileInput.multiple = false;
+  fileInput.click();
+}
+
+function uploadFiles(fileList, targetName = null) {
+  if (targetName) {
+    const file = fileList[0];
+    uploadTargetName = null;
+    fileInput.multiple = true;
+    if (!file) return;
+    if (file.name !== targetName.split("/").pop()) {
+      toast(`ファイル名が一致しません: ${file.name}`, "error");
+      return;
+    }
+    uploadOne(targetName, file);
+    return;
+  }
   const existing = new Set(allFiles.map((f) => f.name));
   for (const file of fileList) {
     const name = currentPrefix + file.name;
@@ -464,7 +496,7 @@ dropzone.addEventListener("keydown", (e) => {
 });
 filePickBtn.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => {
-  uploadFiles(fileInput.files);
+  uploadFiles(fileInput.files, uploadTargetName);
   fileInput.value = "";
 });
 

@@ -86,11 +86,26 @@ def test_admin_files_lists_blobs(client, mock_blob_client, admin_headers):
     blob = MagicMock(name="manuals/a.pdf", size=123, last_modified=datetime(2024, 1, 1, tzinfo=UTC))
     blob.name = "manuals/a.pdf"
     mock_blob_client.get_container_client.return_value.list_blobs.return_value = [blob]
-    r = client.get("/api/admin/files", headers=admin_headers)
+    r = client.get("/api/admin/files?prefix=manuals/", headers=admin_headers)
     assert r.status_code == 200
     files = r.json()["files"]
     assert files[0]["name"] == "manuals/a.pdf"
+    assert files[0]["application_name"] == "テストアプリ"
     assert files[0]["size"] == 123
+
+
+def test_catalog_listing_keeps_missing_file_metadata_empty(client, admin_headers):
+    response = client.get("/api/admin/files?prefix=manuals/", headers=admin_headers)
+
+    assert response.status_code == 200
+    assert response.json()["files"] == [
+        {
+            "application_name": "テストアプリ",
+            "name": "manuals/a.pdf",
+            "size": None,
+            "last_modified": None,
+        }
+    ]
 
 
 def test_delete_requires_admin(client):
@@ -130,6 +145,16 @@ def test_upload_rejects_path_traversal(client, admin_headers):
         headers=admin_headers,
     )
     assert r.status_code == 400
+
+
+def test_upload_rejects_file_not_registered_in_catalog(client, admin_headers):
+    response = client.post(
+        "/api/admin/upload?name=manuals/unknown.pdf",
+        content=b"pdf-data",
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 400
 
 
 def test_failed_blob_upload_preserves_existing_local_file(client, mock_blob_client, admin_headers, tmp_path):

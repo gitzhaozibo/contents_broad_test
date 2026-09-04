@@ -37,9 +37,25 @@ def test_admin_files_render_and_search(page, base_url):
     page.click("#adminTabBtn")
     page.wait_for_selector("#fileBody tr")
     assert page.locator("#fileBody tr").count() == 2
+    assert page.locator("#fileBody button").count() == 4
+    assert "セットアップアプリ" in page.inner_text("#fileBody")
     page.fill("#search", "setup")
     assert page.locator("#fileBody tr").count() == 1
     assert "setup.pdf" in page.inner_text("#fileBody")
+
+
+def test_catalog_upload_rejects_mismatched_file_name(page, base_url, tmp_path):
+    page.goto(f"{base_url}/app01/")
+    page.click("#adminTabBtn")
+    page.wait_for_selector("#fileBody tr")
+    wrong_file = tmp_path / "wrong-name.pdf"
+    wrong_file.write_bytes(b"not the target")
+
+    with page.expect_file_chooser() as chooser_info:
+        page.locator("#fileBody button:not(.danger)").first.click()
+    chooser_info.value.set_files(str(wrong_file))
+
+    assert "ファイル名が一致しません" in page.inner_text("#toasts")
 
 
 def test_delete_with_confirm(page, base_url):
@@ -47,7 +63,7 @@ def test_delete_with_confirm(page, base_url):
     page.click("#adminTabBtn")
     page.wait_for_selector("#fileBody tr")
     page.on("dialog", lambda d: d.accept())
-    page.locator("#fileBody button.act").first.click()
+    page.locator("#fileBody button.danger").first.click()
     page.wait_for_timeout(200)
 
 

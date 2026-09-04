@@ -21,8 +21,18 @@ APP_JS = (REPO_ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
 APP_CSS = (REPO_ROOT / "static" / "css" / "style.css").read_text(encoding="utf-8")
 
 FILES = [
-    {"name": "manuals/guide.pdf", "size": 1024, "last_modified": "2024-01-01T00:00:00+00:00"},
-    {"name": "manuals/setup.pdf", "size": 2048, "last_modified": "2024-02-01T00:00:00+00:00"},
+    {
+        "application_name": "ガイドアプリ",
+        "name": "manuals/guide.pdf",
+        "size": 1024,
+        "last_modified": "2024-01-01T00:00:00+00:00",
+    },
+    {
+        "application_name": "セットアップアプリ",
+        "name": "manuals/setup.pdf",
+        "size": 2048,
+        "last_modified": "2024-02-01T00:00:00+00:00",
+    },
 ]
 RELEASE_NOTES = [
     {

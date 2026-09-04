@@ -25,7 +25,11 @@ Azure Blob Storage に保存し、Entra ID（Easy Auth）認証のもとで配�
 ### 管理（FileAdmin のみ）
 フォルダ（`manuals/` `videos/` `release_notes/` `announcements/`）を選び、
 ファイルの一覧・検索・ソート・ページング（50 件/頁）ができる。
-ドラッグ＆ドロップまたはファイル選択でアップロード（進捗バー付き、同名は上書き確認）、
+YAML の対応表を基準にアプリ名・ファイル名を表示し、実ファイルがない場合も行を表示する。
+`manuals/` と `videos/` では各行のアップロード操作から、対応表に登録されたファイル名と
+選択ファイル名が一致する場合だけ上書きアップロードできる（実ファイルの事前存在確認は行わない）。
+ドラッグ＆ドロップまたはファイル選択でアップロード（進捗バー付き、同名は上書き確認）は
+その他のフォルダで利用でき、
 チェックボックスで複数選択して削除できる。削除は 5 秒間の「元に戻す」猶予付き。
 アップロード・削除は nginx ローカルと Blob Storage の両方に反映される。
 
@@ -44,6 +48,7 @@ Azure Blob Storage に保存し、Entra ID（Easy Auth）認証のもとで配�
 | `static/js/app.js` | ポータル画面のフロントエンドロジック（素の JavaScript） |
 | `static/css/style.css` | ポータル画面のスタイルシート |
 | `portal-content/` | dummy モードで使うローカルコンテンツ（開発・テスト用） |
+| `config/content_catalog.yaml` | アプリ名と manual / video の対応表 |
 | `health_check.html` | 稼働状態表示ページ |
 | `requirements.txt` | Python 依存関係 |
 
@@ -54,10 +59,12 @@ nginx listen 80 / EXPOSE 80 / WEBSITES_PORT=80 を一致。uvicorn は 127.0.0.1
 - `GET /api/health` 認証済 — API + Blob 接続性（正常200／異常503）
 - `GET /api/me` 認証済 — ユーザー名と `is_admin`
 - `GET /api/release-notes` 認証済 — `release_notes/` 配下の `.txt` をカテゴリ・本文付きで新しい順に返す
-- `GET /api/admin/files` 管理者 — ファイル一覧
+- `GET /api/admin/files?prefix=manuals/` または `videos/` 管理者 — YAML 基準のファイル一覧（未配置はサイズ・更新日時が null）
 - `POST /api/admin/upload?name=...` 管理者 — リクエストボディを一時ファイルへストリーミングし、nginx と Blob に保存・更新
 - `POST /api/admin/delete` 管理者 — nginx と Blob から削除
 
+`manuals/` と `videos/` のアップロードは YAML に登録されたファイル名だけを受け付ける。
+既存ファイルの有無は許可条件ではないため、未配置ファイルの初回アップロードも可能である。
 ファイル名は相対パスとして検証され、絶対パス、`..`、`.`、空のパス要素、バックスラッシュ、
 NULL 文字を含む名前は拒否される。これにより、ローカル保存先のディレクトリ外へ書き込まない。
 
